@@ -80,5 +80,6 @@
 ### Exercise 5.1-5.5: Implementation notes
 - **Stateless Design:** Lịch sử hội thoại lưu trong Redis (`history:{user_id}`) thay vì biến Python local. Khi scale lên nhiều instance, mọi node đều đọc cùng 1 Redis → context nhất quán.
 - **Fakeredis Fallback:** Nếu không có Redis server, ứng dụng tự động dùng `fakeredis.FakeStrictRedis()` trong bộ nhớ → không crash, vẫn hoạt động.
+- **Screenshot:** [XEM TRONG THƯ MỤC REPO: screenshots/chatbot_ui.png]
 - **Self-Healing:** Railway tự restart container khi `/health` không phản hồi (cấu hình trong `railway.toml`: `restartPolicyType = "ON_FAILURE"`).
 - **LLM Fallback:** Nếu không có `OPENAI_API_KEY`, hệ thống dùng `mock_llm.py` thay vì crash — đảm bảo uptime 100% kể cả khi thiếu key.

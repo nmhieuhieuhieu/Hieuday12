@@ -51,5 +51,5 @@ curl -X POST https://hieuday12-production.up.railway.app/ask \
 ## Screenshots
 Chụp màn hình và đặt vào thư mục `screenshots/`:
 - `![Railway Dashboard](screenshots/dashboard.png)`
-- `![Chat UI](screenshots/chat_ui.png)`
+- `![Chat UI](screenshots/chatbot_ui.png)`
 - `![Health Check](screenshots/health.png)`
