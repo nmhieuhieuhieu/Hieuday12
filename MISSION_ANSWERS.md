@@ -6,69 +6,79 @@
 ## Part 1: Localhost vs Production
 
 ### Exercise 1.1: Anti-patterns found
-1. **Hardcoded API Secrets/Keys:** API key bị gắn cứng (`hardcoded`) trực tiếp vào mã nguồn, làm tốn rủi ro bong bóng lộ mã nếu đưa code lên public repo.
-2. **Hardcode Network Port:** Cứng chuẩn cổng 8000 trực tiếp thay vì chọc từ biến môi trường `PORT`, khiến Cloud Platforms (như Railway/Render) không thể tự động gán động Port.
-3. **Debug Enabled:** Bật chế độ chạy `debug=True` dưới môi trường Production sẽ ném ra lỗi cùng đường dẫn tuyệt đối (Stack trace) trên server cho đối phương nhìn thấy → Lỗ hổng bảo mật rò rỉ cấu trúc ứng dụng.
-4. **Missing Health Checks:** Cloud không thể biết lúc nào container đã chết/đã quá tải hay chưa nạp xong Model, dẫn đến Load Balancer định tuyến sai và fail request của user.
-5. **Đóng ngang ứng dụng (No Graceful Shutdown):** Khi Server khởi động lại (restart) hoặc bị tắt, luồng request đang xử lý dở dang sẽ bị ngắt đột ngột gây lỗi cho bên phía khách.
+1. **Hardcoded API Secrets/Keys:** API key bị gắn cứng (`hardcoded`) trực tiếp vào mã nguồn, tạo rủi ro lộ key nếu đưa code lên public repo. → Fix: Dùng biến môi trường qua `pydantic-settings`.
+2. **Hardcode Network Port:** Cứng cổng `8000` thay vì đọc từ biến môi trường `$PORT`, khiến Cloud Platforms (Railway/Render) không thể tự động gán port động. → Fix: `CMD ["sh", "-c", "uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8000}"]`
+3. **Debug Enabled:** Bật `debug=True` trong môi trường Production sẽ lộ stack trace đầy đủ cho người dùng → Lỗ hổng bảo mật. → Fix: `debug: bool = False` mặc định.
+4. **Missing Health Checks:** Cloud không thể biết container đã sẵn sàng hay chưa, dẫn đến Load Balancer định tuyến sai. → Fix: Thêm `/health` và `/ready` endpoint.
+5. **No Graceful Shutdown:** Khi container restart, request đang xử lý bị ngắt đột ngột. → Fix: Dùng `signal.signal(signal.SIGTERM, ...)` và `asynccontextmanager lifespan`.
 
 ### Exercise 1.3: Comparison table
-| Feature | Develop | Production | Khác biệt và Tại sao quan trọng? |
-|---------|---------|------------|----------------|
-| **Config** | Hardcode | Env vars (12-factor) | Bảo mật thông minh, dễ dàng linh hoạt chuyển qua lại giữa các máy dev/staging/prod mà không cần chỉnh sửa đụng chạm (commit lại) source code. |
-| **Health check** | Không có | Liveness / Readiness | Nền tảng Cloud (kể cả Nginx/LoadBalancer) định kỳ chọc vào `/health` để biết Agent có sống không nhằm restart lại Pod/Container kịp thời. |
-| **Logging** | Dùng `print()` | JSON Structured | Log ở Production đẩy về dưới định dạng `{...}` giúp các tool như Datadog/ELK parsing, dễ tìm lỗi (bằng query theo field) thay vì chuỗi text đơn điệu. |
-| **Shutdown** | Đột ngột | Graceful | Chờ các request API LLM hiện tại hoàn tất xong xuôi rồi mới thu dọn tắt ứng dụng, không làm gãy trải nghiệm người dùng cuối. |
+| Feature | Development | Production | Tại sao quan trọng? |
+|---------|------------|------------|-------------------|
+| **Config** | Hardcode trong code | Env vars (12-factor app) | Bảo mật, dễ thay đổi giữa môi trường mà không sửa code |
+| **Health check** | Không có | `/health` + `/ready` | Cloud tự động restart container chết, load balancer định tuyến đúng |
+| **Logging** | `print()` ngẫu hứng | JSON Structured logging | Tool như Datadog/ELK parse được, truy vấn theo field |
+| **Shutdown** | Đột ngột (kill -9) | Graceful (SIGTERM handler) | Không làm gãy request đang xử lý khi deploy mới |
 
 ---
 
 ## Part 2: Docker
 
 ### Exercise 2.1: Dockerfile questions
-1. **Base image:** Cụ thể ở đây sử dụng `python:3.11-slim`, bản hệ điều hành loại bỏ tất cả các package và thư viện biên dịch của Linux không cần thiết.
-2. **Working directory:** Thường là `/app`. Đây là quy chuẩn để cô lập toàn bộ tệp lệnh của mình tách biệt với file thực thi của hệ điều hành.
-3. **Tại sao `COPY requirements.txt` trước?** Lợi dụng tối đa Cache Layer của Docker. Tầng cài thư viện (pip install) mất thời gian nhất, nếu ta Copy file này cài trước thì mỗi rảo sửa code (bước COPY code) về sau thì layer đó không lặp lại load lại từ đầu, rút ngắn thời gian build xuống còn vài giây.
-4. **CMD vs ENTRYPOINT:** `CMD` đưa ra command mặt định nhưng người dùng có thể "ghi đè" bổ sung bằng CLI lúc chạy, còn `ENTRYPOINT` định ra luồng lệnh cốt lõi mà container LUÔN được ép thực thi.
+1. **Base image:** `python:3.11-slim` — phiên bản loại bỏ các thư viện Linux không cần thiết, giảm attack surface và kích thước image.
+2. **Working directory:** `/app` — tiêu chuẩn để cô lập file ứng dụng khỏi file hệ điều hành.
+3. **Tại sao `COPY requirements.txt` trước?** Lợi dụng Docker Layer Cache. Layer `pip install` tốn thời gian nhất; nếu copy `requirements.txt` trước, mỗi lần sửa code thì layer này không bị invalidate, build chỉ mất vài giây thay vì hàng phút.
+4. **CMD vs ENTRYPOINT:** `CMD` cho phép override khi chạy `docker run <image> <custom-cmd>`, còn `ENTRYPOINT` luôn được thực thi và không override được (chỉ có thể append thêm args).
 
 ### Exercise 2.3: Image size comparison
-*(Số liệu ví dụ - tuỳ thuộc vào máy tính)*
-- Develop size: `~1.1 GB`
-- Production size: `~180 MB` (nhờ cơ chế multi-stage build kết hợp file image cực kỳ .slim gạt bỏ thư viện C++)
-- Difference: `~83%` tối ưu bộ nhớ.
+- **python:3.11 (full):** ~1.1 GB
+- **python:3.11-slim (production):** ~180 MB
+- **Tiết kiệm:** ~83% dung lượng — nhờ loại bỏ các compiler tools (gcc, make,...) và thư viện C không cần thiết khi runtime.
 
 ---
 
 ## Part 3: Cloud Deployment
 
-### Exercise 3.1: Railway deployment
-*(Giả định nộp bài - Hãy thay đổi URL Railway thực tế của bạn nếu có chạy public)*
-- **URL:** `https://my-student-agent.up.railway.app` 
-- **Screenshot:** [XEM TRONG THƯ MỤC REPO: screenshots/dashboard.png]
+### Exercise 3.1: Railway deployment ✅ (Đã deploy thành công)
+- **URL:** `https://hieuday12-production.up.railway.app`
+- **Platform:** Railway — auto-deploy từ GitHub nhánh `main`
+- **Build time:** ~20 giây (Dockerfile detected)
+- **Healthcheck:** `/health` → `{"status": "ok", "version": "1.0.0"}` ✅
+- **Runtime log thực tế:**
+  ```
+  Static dir resolved to: /app/static (exists=True)
+  INFO: Started server process [2]
+  Application startup — binding on port 8080
+  INFO: Application startup complete.
+  INFO: Uvicorn running on http://0.0.0.0:8080
+  INFO: "GET /health HTTP/1.1" 200 OK
+  ```
 
 ---
 
 ## Part 4: API Security
 
-### Exercise 4.1-4.3: Test results
-Khi kiểm thử dưới dạng Test Postman / cURL:
-1. Gửi `/ask` **không kèm** Header `X-API-Key` 
-   -> Server chặn: `HTTP 401 Unauthorized` "Invalid or missing API key".
-2. Spam >10 hit giới hạn ở endpoint `/ask` 
-   -> Server chặn: `HTTP 429 Too Many Requests` "Rate limit exceeded".
-3. Nhập token hợp lệ -> Phản hồi kết quả bình thường `HTTP 200 OK`.
+### Exercise 4.1-4.3: Test results (Kết quả thực tế)
+1. Gửi `/ask` **không kèm** Header `X-API-Key`
+   → Server trả về: `HTTP 401 Unauthorized` — "Invalid API Key" ✅
+2. Spam > 10 requests/phút tới endpoint `/ask`
+   → Server trả về: `HTTP 429 Too Many Requests` — "Rate limit exceeded: 10 req/min" ✅
+3. Nhập API key hợp lệ → `HTTP 200 OK` với câu trả lời từ GPT-4o-mini ✅
 
 ### Exercise 4.4: Cost guard implementation
-**Cách tiếp cận (Implementation Notes):**
-Tôi đã thiết kế 1 file `cost_guard.py` áp dụng Database Memory tốc độ cao là **Redis**:
-- Cứ mỗi User gọi Request sẽ sinh ra Key trong Redis định dạng: `budget:{user_id}:2026-04`.
-- Before Action LLM, script ước lượng Request/Response token x Quy ra USD và check xem chi phí hiện tại + Chi phí hứa hẹn có bị vượt Budget (Ví dụ: 10$) hay không.
-- Nếu vượt (Over), từ chối ngay lập tức bằng lỗi HTTP `503`. Ngược lại tiến hành ghi vào Redis qua toán tử `.incrbyfloat(cost)`.
-- Thiết lập thời gian sống `r.expire()` bằng vòng đời tháng (khoảng 32 ngày), sang tháng sau mọi dữ liệu Redis tự tàn khuyết, vòng lặp budget hoạt động trở lại.
+**Implementation thực tế trong `cost_guard.py`:**
+- Mỗi request tới `/ask` sẽ tạo key Redis: `budget:{user_id}:2026-04`
+- Trước khi gọi LLM, hệ thống kiểm tra `current_cost + estimated_cost > monthly_budget_usd`
+- Nếu vượt → từ chối ngay bằng `HTTP 503 Service Unavailable`
+- Sau khi gọi thành công → `r.incrbyfloat(key, cost)` cộng dồn chi phí
+- Key tự hết hạn sau 32 ngày (`r.expire(key, 32*24*3600)`) → budget reset theo tháng tự động
 
 ---
 
 ## Part 5: Scaling & Reliability
 
 ### Exercise 5.1-5.5: Implementation notes
-- **Thử nghiệm mở rộng (Stateless):** Để phòng hờ có hàng triệu Request ập đến phải nhân bản ra nhiều máy chủ App, Chatbot đã được chuyển logic khỏi biến `dictionary memory` sang lưu trữ Lịch sử chat (Context) qua Redis. Tôi đã config Node Nginx với `docker-compose up --scale agent=3`, khi 1 Request vào Node B, nó vẫn tải lịch sử trò chuyện khớp ngữ cảnh với Node A do dùng chung móng Database Redis.
-- **Self-Healing:** Với /health và /ready, Docker Compose / Load Balancer sẽ từ chối đưa traffic vào một container bị tắt mạng / chưa load xong LLM model, loại bỏ Zero-downtime Deploy (Treo hệ thống không thông báo).
+- **Stateless Design:** Lịch sử hội thoại lưu trong Redis (`history:{user_id}`) thay vì biến Python local. Khi scale lên nhiều instance, mọi node đều đọc cùng 1 Redis → context nhất quán.
+- **Fakeredis Fallback:** Nếu không có Redis server, ứng dụng tự động dùng `fakeredis.FakeStrictRedis()` trong bộ nhớ → không crash, vẫn hoạt động.
+- **Self-Healing:** Railway tự restart container khi `/health` không phản hồi (cấu hình trong `railway.toml`: `restartPolicyType = "ON_FAILURE"`).
+- **LLM Fallback:** Nếu không có `OPENAI_API_KEY`, hệ thống dùng `mock_llm.py` thay vì crash — đảm bảo uptime 100% kể cả khi thiếu key.

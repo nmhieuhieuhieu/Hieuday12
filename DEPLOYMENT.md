@@ -1,48 +1,55 @@
 # Deployment Information
 
 ## Public URL
-(Giả định: URL sau khi bạn đẩy code này lên một dịch vụ thiết lập tự động như Railway)
 
-https://my-production-agent-hieu.up.railway.app
-
-**(Lưu ý: Bạn cũng có thể truy cập bằng localhost `http://localhost:8000` với ứng dụng Local Compose của chúng ta)**
+https://hieuday12-production.up.railway.app
 
 ## Platform
-Railway (Tham chiếu thông số thiết lập trong `railway.toml`) / Local Docker Compose
+Railway — Dockerfile detected, single-stage build, auto-deploy từ nhánh `main`.
 
 ## Test Commands
 
-### Health Check (Kiểm tra Sinh tồn Backend)
+### Health Check
 ```bash
-curl http://localhost:8000/health
-# Hoặc trên powershell
-Invoke-RestMethod -Uri http://localhost:8000/health -Method Get
-# Phản hồi dự kiến: {"status": "ok"}
+curl https://hieuday12-production.up.railway.app/health
+# Phản hồi: {"status": "ok", "version": "1.0.0"}
 ```
 
-### API Test (Yêu cầu API KEY Xác thực)
+### API Test (Yêu cầu Agent API Key)
 ```bash
-curl -X POST http://localhost:8000/ask \
-  -H "X-API-Key: dev-key-change-me" \
+curl -X POST https://hieuday12-production.up.railway.app/ask \
+  -H "X-API-Key: <AGENT_API_KEY>" \
   -H "Content-Type: application/json" \
   -d '{"question":"Bạn là chuyên gia về AI Agent phải không?"}'
-# Phản hồi dự kiến: {"question": "...", "answer": "...", "model": "...", "timestamp": "..."}
+# Phản hồi: {"question": "...", "answer": "...", "model": "gpt-4o-mini", "timestamp": "..."}
 ```
 
-## Environment Variables Set
-Cài đặt Biến Môi Trường tại Dashboard Cloud / trong file `.env`:
-- `PORT=8000`
-- `HOST=0.0.0.0`
-- `ENVIRONMENT=production`
-- `AGENT_API_KEY`: dev-key-change-me
-- `OPENAI_API_KEY`: <Tự Set Token Của Bạn>
-- `RATE_LIMIT_PER_MINUTE`: 10
-- `DAILY_BUDGET_USD`: 10.0
-- `REDIS_URL`: URL tới Cloud Storage Redis
+### Rate Limit Test
+```bash
+# Gửi > 10 requests/phút → HTTP 429 Too Many Requests
+```
+
+## Environment Variables (Railway)
+| Variable | Mô tả |
+|----------|-------|
+| `OPENAI_API_KEY` | Key OpenAI để gọi GPT-4o-mini ✅ |
+| `AGENT_API_KEY` | Mật khẩu xác thực API ✅ |
+| `RATE_LIMIT_PER_MINUTE` | Giới hạn request/phút ✅ |
+| `DAILY_BUDGET_USD` | Giới hạn ngân sách ✅ |
+| `REDIS_URL` | URL Redis storage ✅ |
+| `ENVIRONMENT` | production ✅ |
+| `APP_NAME`, `APP_VERSION` | Thông tin ứng dụng ✅ |
+
+## Deployment Status
+- ✅ Build thành công (single-stage Dockerfile)
+- ✅ Healthcheck `/health` → 200 OK
+- ✅ GPT-4o-mini hoạt động
+- ✅ Rate limiting hoạt động
+- ✅ API Key authentication hoạt động
+- ✅ Mock fallback khi không có OpenAI key
 
 ## Screenshots
-_Để hình ảnh báo cáo được chính thức nhất, xin vui lòng:_
-1. Upload folder code này lên Github.
-2. Link Github lên mục Deploy của ứng dụng như Railway, sau đó chụp ảnh màn hình Web Railway gán vào folder `screenshots/`.
-3. Ảnh chèn tại đây có cú pháp: `![Dashboard](screenshots/dashboard.png)`
-4. `![HealthCheck Terminal](screenshots/running.png)`
+Chụp màn hình và đặt vào thư mục `screenshots/`:
+- `![Railway Dashboard](screenshots/dashboard.png)`
+- `![Chat UI](screenshots/chat_ui.png)`
+- `![Health Check](screenshots/health.png)`
